@@ -2,9 +2,4 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-OUT="${1:-$HOME/Transcripts/$(date '+%Y-%m-%d_%H-%M-%S')}"
-
-mkdir -p "$OUT"
-
-"$ROOT/recorder" "$OUT"
-"$ROOT/.venv/bin/python" "$ROOT/transcribe.py" "$OUT"
+exec "$ROOT/.venv/bin/python" "$ROOT/transcribe.py" "$@"

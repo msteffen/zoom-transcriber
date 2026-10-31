@@ -1,1 +1,5 @@
 requests>=2.32,<3
+numpy>=2
+sounddevice>=0.5
+soundfile>=0.12
+pyobjc-framework-CoreAudio>=11; sys_platform == 'darwin'

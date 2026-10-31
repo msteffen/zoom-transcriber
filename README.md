@@ -1,47 +1,49 @@
-# Zoom transcription (macOS 14.2+)
+# Zoom call transcription (macOS 14.2+)
 
-Records speaker output and the default microphone independently using Apple's ScreenCaptureKit. After pressing Return, `record` (from `Recorder.swift`) records input and output audio, and `transcribe.py` transcribes the tracks and uploads the transcript to a Notion page. No video is saved.
+Waits for a Zoom meeting to start, records Zoom's audio output and your microphone as separate tracks, stops automatically when the meeting ends, then transcribes both tracks with OpenAI and (optionally) creates a Notion page.
+
+Zoom's audio is captured with a Core Audio process tap, which only needs the "System Audio Recording Only" permission (no screen recording), and only hears Zoom: notification sounds and other apps aren't recorded.
 
 ## Prerequisites
 
-- macOS 14.2+ (ScreenCaptureKit microphone stream support); command line developer tools (`xcode-select --install`)
-- Homebrew `ffmpeg` (`brew install ffmpeg`)
-- Python 3 and an OpenAI API key
-- Notion integration token + page ID; share the parent page with your Notion integration, and give it permission to create content
-- Screen & System Audio Recording permission and Microphone permission for the actual hosting process (typically Terminal or iTerm). Check System Settings > Privacy & Security. Restart Terminal if prompted.
-- Use headphones to prevent mic picking up speaker audio, otherwise diarization accuracy suffers.
+- macOS 14.2+ (tested on macOS 26)
+- Python 3.10+ and Homebrew `ffmpeg` (`brew install ffmpeg`)
+- An OpenAI API key; for `--notion`, a Notion integration token + parent page ID (share the page with the integration)
+- Microphone and System Audio Recording permission for your terminal app (System Settings > Privacy & Security). macOS prompts the first time.
+- Use headphones, so the mic doesn't also pick up the other person.
 
 ## Setup
 
 ```bash
-./setup.sh
+PYTHON=python3.14 ./setup.sh   # any Python 3.10+
 export OPENAI_API_KEY='...'
 export NOTION_TOKEN='...'
 export NOTION_PARENT_PAGE_ID='...'
-./transcribe-zoom
+./transcribe-zoom record
 ```
 
-Press Return at end of the call. Output is in `~/ZoomTranscripts/<timestamp>/` with `mic.m4a`, `system.m4a`, `timing.json`, `segments.json`, and `transcript.md`. A failed API step does not delete the recording: retry with:
+`transcribe-zoom record` can be started before the call: it waits until Zoom turns on its microphone (i.e. you've joined a meeting), records until Zoom releases the mic (the meeting ends), then transcribes. If a meeting is already going, it starts recording right away. Press Return (or Ctrl-C) to stop early.
+
+Output is in `~/Transcripts/<timestamp>/` (or pass a directory: `transcribe-zoom record DIR`): `mic.flac`, `system.flac`, `segments.json`, and `transcript.md`. A failed API step does not delete the recording; retry with:
 
 ```bash
-.venv/bin/python transcribe.py "$HOME/ZoomTranscripts/<timestamp>" --no-notion
+./transcribe-zoom transcribe ~/Transcripts/<timestamp>
 ```
 
-To use the newer transcription model:
+Add `--notion` to upload to Notion, or `--model gpt-transcribe` for the newer transcription model.
 
-```bash
-.venv/bin/python transcribe.py "<recording directory>" --model gpt-transcribe --no-notion
-```
+**Model note:** `whisper-1` gives per-segment timestamps needed to merge the two sources into a chronological transcript, but it is deprecated and scheduled to shut down 2027-02-26. `gpt-transcribe` does not presently offer segment timestamps; with that option this tool interleaves 10-minute chunks, not individual turns.
 
-**Model note:** `whisper-1` gives per-segment timestamps needed to merge the two sources into a chronological transcript, but it is deprecated and scheduled to shut down 2027-02-26. `gpt-transcribe` is recommended for new transcription work but does not presently offer this precise segmented-timestamp output; with that option this tool interleaves 10-minute chunks, not individual turns.
+## Robustness
+
+- Audio is written to FLAC every half second, so a crash, `kill -9`, or dead battery loses at most the last moment of audio, and the partial file still transcribes.
+- Return, Ctrl-C, closing the terminal (SIGHUP), and SIGTERM all stop the recording cleanly before exiting.
+- If the Mac sleeps mid-call, recording pauses with it. Zoom usually drops the call, so on wake the recording stops (or on an audio device error) and transcribes what was captured.
 
 ## Limitations / privacy
 
-- No tested macOS environment was available to validate this prototype. Swift API details may require minor adjustment on your machine.
-- System audio capture generally records all audible apps, not just the call. Pause notifications or other sound; use headphones to avoid double capture.
-- Capture may be silent when the calling platform uses protected audio paths, or due to permissions.
-- A stream can have a different starting timestamp or some drift. This tool uses CoreMedia sample PTS for initial alignment but does not correct subsequent drift.
+- The mic is whichever input is the default when recording starts. Switching mics mid-call (e.g. connecting AirPods) isn't followed.
+- The two tracks have separate clocks: they start a few milliseconds apart and drift well under a second per hour. Fine for a transcript, not for audio editing.
+- Meeting detection relies on Zoom keeping the mic open during a meeting. If Zoom releases it for long stretches (e.g. while muted, on some setups), the recording would stop early. Briefly switching audio devices mid-call (e.g. AirPods connecting) may also end it.
 - Whisper timestamps are approximate. Crosstalk and speech leakage between tracks can create duplicates, so review the transcript.
-- The capture loop needs an interactive terminal; to run it unattended you'd need a dedicated app and lifecycle control.
-- There is no duplicate-upload prevention if the Notion upload fails mid-way. Keep the local transcript as the source of truth.
-- Audio is sent to OpenAI and text to Notion. Confirm your healthcare provider's consent, applicable recording law, and both services' privacy policies. Treat these as highly sensitive health records; consider local-only Whisper instead if cloud upload is unacceptable. Keep recordings in a private directory.
+- Audio is sent to OpenAI and, with `--notion`, text to Notion. Confirm consent, applicable recording law, and both services' privacy policies. Treat these as sensitive health records; consider local-only Whisper instead if cloud upload is unacceptable. Keep recordings in a private directory.
