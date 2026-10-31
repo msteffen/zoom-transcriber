@@ -169,7 +169,14 @@ def main():
                      help='Where to save the recording (default: ~/Transcripts/<timestamp>)')
     tr = commands.add_parser('transcribe', parents=[options], help='Transcribe an existing recording')
     tr.add_argument('directory', type=Path)
-    args = p.parse_args()
+
+    # Make 'record' the default verb (argparse can't do default commands)
+    argv = sys.argv[1:]
+    if not argv or (argv[0].startswith('-') and argv[0] not in ('-h', '--help')):
+        argv.insert(0, 'record')
+
+    # Parse modified arguments
+    args = p.parse_args(argv)
 
     d = args.directory
     if args.command == 'record':
